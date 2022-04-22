@@ -34,7 +34,7 @@ test = [
 doc = ["sphinx"]
 
 [tool.flit.scripts]
-blearn-verify_dl = "blearn.grader:verify_dl"
+blearn-prepare = "blearn.grader:main"
 
 [tool.black]
 line-length = 88

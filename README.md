@@ -6,10 +6,6 @@ https://github.com/psf/black)
 
 Utilities to work with BlackBoard Learn in offline mode (this is, *not* with its API).
 
-## TODO regarding code
-* Remove print statements and `verbose` arguments and move to proper logging system.
-  * Provide coding snippet to show how to use logging system or create it by default.
-
 # Functionality
 * Parse offline grading sheet.
 * Parse bundled submission in zip file or extracted zip file:

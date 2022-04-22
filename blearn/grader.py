@@ -1,8 +1,9 @@
+import argparse
+import logging
 import shutil
-import warnings
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional
 from zipfile import ZipFile, BadZipFile
 
 import arrow
@@ -41,6 +42,28 @@ TXT_DEFAULT_PATH_TXT = (
     "{assignment}_{id}_attempt_{year}-{month}-{day}-{hour}-{minute}-{second}.txt"
 )
 TXT_DEFAULT_PATH_SUBMISSION = TXT_DEFAULT_PATH_TXT.replace(".txt", "_{fname}")
+
+
+def _setup_logger(path: Path, debug: bool = False):
+    """Set up logger and save to `path`, optionally with debugging info."""
+
+    def filter_parse(record):
+        if record.name == "parse":
+            return False
+        return True
+
+    level = logging.DEBUG if debug else logging.INFO
+    formatter = logging.Formatter(
+        "{asctime} - {module} - {name} - {levelname} - {funcName}:{lineno} - "
+        "{message}",
+        style="{",
+    )
+    fh = logging.FileHandler(str(path), mode="w")
+    fh.setLevel(level)
+    fh.setFormatter(formatter)
+    fh.addFilter(filter_parse)
+    logging.basicConfig(handlers=[fh], level=level)
+    return fh
 
 
 def _col_width_excel(df: pd.DataFrame, with_index: bool = True) -> list[int]:
@@ -94,7 +117,7 @@ def _get_similar_files(
     if not f_others and mode is not None:
         msg = f"Could not find similar file(s) for `{template}`: {f_others=}"
         if mode == "warn":
-            warnings.warn(msg)
+            logging.error(msg)
         elif mode == "halt":
             raise ValueError(msg)
         else:
@@ -143,12 +166,6 @@ def _read_fnames(path: Path, /, mode: str = "log") -> list[str]:
         return [fname for fname in fnames if fname not in logs]
     else:
         raise ValueError(f"`{mode=}` is not supported.")
-
-
-def _write_aloud(path: str | Path, how: Optional[Callable]):
-    print(f"Writing file {str(path)} ...", end=" ")
-    how(path)
-    print("done.")
 
 
 def msg_loads(
@@ -247,7 +264,7 @@ def metadata_from_filenames(fzip: Path, /, quiet: bool = False) -> pd.DataFrame:
     return df
 
 
-def read_xls(fxls: Path, /, quiet: bool = False, verbose: bool = False) -> pd.DataFrame:
+def read_xls(fxls: Path, /) -> pd.DataFrame:
     df = (
         pd.read_csv(
             fxls,
@@ -268,12 +285,8 @@ def read_xls(fxls: Path, /, quiet: bool = False, verbose: bool = False) -> pd.Da
         .set_index("id")
     )
     if np.any(sel := df["Username"].str.contains("_previewuser")):
-        msg = "preview user(s) detected: dropping rows (use verbose=True to see affected rows)"
-        if not quiet:
-            warnings.warn(msg)
-        if verbose:
-            print(msg)
-            display(df.loc[sel, :])
+        msg = "preview user(s) detected: dropping rows (use verbose=True to see affected rows)\n{}"
+        logging.info(msg.format(df.loc[sel, ["Last Name", "First Name"]].reset_index()))
         df = df.loc[~sel, :]
     assert np.all([("s" + x) == y for x, y in zip(df["Student ID"], df["Username"])])
     return df.sort_index()
@@ -285,7 +298,6 @@ def prepare_project(
     /,
     drop_empty: bool = False,
     safe: bool = True,
-    quiet: bool = True,
     verbose: bool = False,
 ) -> pd.DataFrame:
     root_ini, root_end = Path(root_ini), Path(root_end)
@@ -293,16 +305,18 @@ def prepare_project(
         raise ValueError(f"Not an existing folder: {str(root_ini)}")
     if not (root_end.exists() and root_end.is_dir()):
         raise ValueError(f"Not an existing folder: {str(root_end)}")
-    if safe:
-        if any(root_end.iterdir()):
-            raise ValueError(f"Project output path is not empty. Operation aborted.")
+    if safe and any(root_end.iterdir()):
+        raise ValueError(f"Project output path is not empty. Operation aborted.")
+
+    errors = 0
 
     # Grades
     [fxls] = list(root_ini.glob("*.xls"))
-    df_grades_tpl = read_xls(fxls, quiet=quiet, verbose=verbose)
+    df_grades_tpl = read_xls(fxls)
     if verbose:
         f = root_end / "debug-df_grades_tpl.xlsx"
-        _write_aloud(f, lambda x: _df_to_excel(df_grades_tpl, x))
+        logging.debug(f"Writing DataFrame to {str(f)}")
+        _df_to_excel(df_grades_tpl, f)
 
     # Submissions
     [fzip] = list(root_ini.glob("*.zip"))
@@ -323,7 +337,8 @@ def prepare_project(
         raise ValueError(f"Data seems to host more than one assignment") from e
     if verbose:
         f = root_end / "debug-df_logs.xlsx"
-        _write_aloud(f, lambda x: _df_to_excel(df_logs, x))
+        logging.debug(f"Writing DataFrame to {str(f)}")
+        _df_to_excel(df_logs, f)
     # 3) Pack unexpected cases into zip files and reflect that in the metadata
     md = df_logs[["log", "fnames_blearn"]].to_dict(orient="index")
     for k, v in md.items():
@@ -346,7 +361,8 @@ def prepare_project(
     df_logs["pack"] = df_logs.index.map({k: v["pack"] for k, v in md.items()})
     if verbose:
         f = root_end / "debug-df_logs_pack.xlsx"
-        _write_aloud(f, lambda x: _df_to_excel(df_logs, x))
+        logging.debug(f"Writing DataFrame to {str(f)}")
+        _df_to_excel(df_logs, f)
 
     # Create macro table template
     # 1) Retrieve information from fixed submission folder file
@@ -362,7 +378,8 @@ def prepare_project(
     df_files.loc[:, "submission"] = df_files["submission"].apply(lambda x: x[0])
     if verbose:
         f = root_end / "debug-df_files.xlsx"
-        _write_aloud(f, lambda x: _df_to_excel(df_files, x))
+        logging.debug(f"Writing DataFrame to {str(f)}")
+        _df_to_excel(df_files, f)
     # 2) Merge information
     df_md = pd.merge(
         df_logs.reset_index().rename(columns={"pack": "submission"}),
@@ -411,7 +428,8 @@ def prepare_project(
             with ZipFile(fzip, "r") as zip_ref:
                 zip_ref.extractall(fdir)
         except BadZipFile:
-            warnings.warn(f"Something happened at {fname=}. Carrying on.")
+            errors += 1
+            logging.warning(f"BadZipFile at {id=}.")
             (fdir / "corrupt_submission.txt").touch()
         fzip.unlink()
         submission[fname] = str(fdir.relative_to(root_end))
@@ -429,5 +447,43 @@ def prepare_project(
         )
     name = "template-" + assignment.lower().replace(" ", "_") + ".xlsx"
     f = root_end / name
-    _write_aloud(f, lambda x: _df_to_excel(df_all_tpl, x, group_icols=[2, 3]))
+    logging.debug(f"Writing DataFrame to {str(f)}")
+    _df_to_excel(df_all_tpl, f, group_icols=[2, 3])
+    if errors > 0:
+        print("error / warnings appeared processing submissions. See the log.")
     return df_all_tpl
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="blearn",
+        description="Prepare files and template for marking.",
+    )
+    parser.add_argument(
+        "--root", type=Path, default=Path.cwd(), help="Root folder for marking project."
+    )
+    parser.add_argument("--log", type=Path, default=False, help="Log file.")
+    parser.add_argument("--debug", action="store_true", help="Active debug mode.")
+    parser.add_argument(
+        "--force", action="store_true", help="Force overwriting output folder contents."
+    )
+    parser.add_argument(
+        "--drop_empty", action="store_true", help="Remove entries without submissions."
+    )
+    args = parser.parse_args()
+
+    _setup_logger(path=args.root / "blearn.log", debug=True)
+    logging.info("INI.")
+    root_ini = args.root / "grade_centre-1_input"
+    if not root_ini.exists():
+        raise ValueError(f"Cannot find {str(root_ini)}")
+    root_end = args.root / "grade_centre-2_output"
+    root_end.mkdir(exist_ok=True)
+    prepare_project(
+        root_ini, root_end, drop_empty=True, safe=not args.force, verbose=args.debug
+    )
+    logging.info("END.")
+
+
+if __name__ == "__main__":
+    main()
