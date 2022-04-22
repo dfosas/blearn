@@ -1,0 +1,47 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.flit.metadata]
+module = "blearn"
+author = "Daniel Fosas"
+author-email = "d.fosas@ed.ac.uk"
+home-page = "https://github.com/dfosas/blearn"
+description-file = "README.md"
+requires-python = ">=3.7"
+classifiers = [ "License :: OSI Approved :: MIT License",]
+requires = [
+    "arrow",
+    "numpy",
+    "pandas >1.1",
+    "xlsxwriter",
+    "parse",
+    "tabulate",
+    "xlwings",
+]
+
+[tool.flit.metadata.requires-extra]
+test = [
+    "black",
+    "flake8",
+    "flake8-bugbear",
+    "mypy",
+    "pylint",
+    "pytest >=6.2.0",
+    "pytest-cov",
+    "tox",
+]
+doc = ["sphinx"]
+
+[tool.flit.scripts]
+blearn-verify_dl = "blearn.grader:verify_dl"
+
+[tool.black]
+line-length = 88
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra --doctest-modules"
+testpaths = [
+    "tests",
+]
