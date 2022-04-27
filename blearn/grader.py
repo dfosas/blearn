@@ -395,7 +395,6 @@ def prepare_project(
         raise ValueError("BUG: metadata merge gives unexpected results")
     drop_cols = [
         "Username",
-        "Last Name",
         "First Name",
         "Student ID",
         "Last Access",
@@ -409,9 +408,20 @@ def prepare_project(
         "fnames_original",
         "fnames_blearn",
     ]
-    df_all_tpl = df_all_tpl.drop(drop_cols, axis=1)
+    df_all_tpl = (
+        df_all_tpl.assign(full_name=lambda x: x["First Name"] + " " + x["Last Name"])
+        .sort_values(by=["Last Name", "full_name"])
+        .drop(drop_cols, axis=1)
+    )
     cols = df_all_tpl.columns.tolist()
-    cols_ini = ["current_mark", "submission_field", "submission_comment", "submission"]
+    cols_ini = [
+        "Last Name",
+        "full_name",
+        "submission",
+        "current_mark",
+        "submission_field",
+        "submission_comment",
+    ]
     cols_end = ["Marking Notes", "Feedback to Learner"]
     cols_mid = [col for col in cols if (col not in cols_ini) and (col not in cols_end)]
     df_all_tpl = df_all_tpl[cols_ini + cols_mid + cols_end]
@@ -442,8 +452,11 @@ def prepare_project(
     # 5) Wrap up and write final table
     df_all_tpl.drop(["log"], axis=1, inplace=True)
     if drop_empty:
+        subset = [col for col in df_all_tpl if col not in ["Last Name", "full_name"]]
         df_all_tpl = (
-            df_all_tpl.replace("", float("nan")).dropna(how="all", axis=0).fillna("")
+            df_all_tpl.replace("", float("nan"))
+            .dropna(how="all", axis=0, subset=subset)
+            .fillna("")
         )
     name = "template-" + assignment.lower().replace(" ", "_") + ".xlsx"
     f = root_end / name
