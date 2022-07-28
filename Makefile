@@ -1,12 +1,10 @@
 # Intended for local development only
-
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 .PHONY: coverage help install lint push test tox
 
 dir_package="blearn"
 dir_tests="tests"
-
 
 install:  ## Install in local system
 	flit install --symlink --extras test
@@ -18,8 +16,9 @@ lint:  ## Lint and static-check
 	python -m mypy $(dir_package) $(dir_tests)
 
 test:  ## Test
-	pytest  # configuration defined in pyproject.toml
-
+	coverage erase
+	pytest
+	coverage report
 
 help: ## Show help message
 	@IFS=$$'\n' ; \
