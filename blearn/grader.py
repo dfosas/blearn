@@ -3,7 +3,7 @@ import logging
 import shutil
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 from zipfile import ZipFile, BadZipFile
 
 import arrow
@@ -75,7 +75,8 @@ def _col_width_excel(df: pd.DataFrame, with_index: bool = True) -> list[int]:
 
     Notes
     -----
-    Code adapted from [Cole Diamon@stackoverflow](https://stackoverflow.com/questions/29463274/simulate-autofit-column-in-xslxwriter).
+    Code adapted from Cole Diamond at Stack Overflow
+    ([here](https://stackoverflow.com/questions/29463274/simulate-autofit-column-in-xslxwriter)).
 
     """
     if with_index:
@@ -91,7 +92,7 @@ def _df_to_excel(
     path: Path,
     adjust_colwidth: bool = True,
     with_index: bool = True,
-    group_icols: Optional[list[int]] = None,
+    group_icols: list[int] | None = None,
 ):
     if group_icols is None:
         group_icols = []
@@ -108,7 +109,7 @@ def _df_to_excel(
 def _get_similar_files(
     template: str,
     candidates: list[str],
-    mode: Optional[str] = "warn",
+    mode: str = "warn",
 ) -> list[str]:
     template_stem, _ = template.rsplit(".", maxsplit=1)
     f_others = [
@@ -169,7 +170,7 @@ def _read_fnames(path: Path, /, mode: str = "log") -> list[str]:
 
 
 def msg_loads(
-    txt: str, /, fname: Optional[str] = None, remove_empty: bool = True, tpl=TXT_TPL
+    txt: str, /, fname: str | None = None, remove_empty: bool = True, tpl: str = TXT_TPL
 ) -> dict:
     err_tpl = "Cannot parse:\n---\n{txt}\n---\nwith\n---\n{tpl}\n---\n"
     try:
@@ -212,7 +213,8 @@ def msg_load(path_or_buffer, /, **kwargs) -> dict:
 
     Notes
     -----
-    Code adapted from [JL Pyret@stackoverflow](https://stackoverflow.com/questions/67416614/support-filename-path-and-buffer-input).
+    Code adapted from JL Pyret at Stack Overflow
+    ([here](https://stackoverflow.com/questions/67416614/support-filename-path-and-buffer-input)).
 
     """
     if hasattr(path_or_buffer, "readline"):
@@ -264,10 +266,17 @@ def metadata_from_filenames(fzip: Path, /, quiet: bool = False) -> pd.DataFrame:
     return df
 
 
-def read_xls(fxls: Path, /) -> pd.DataFrame:
+def read_xls(
+    f_xls: Path,
+    /,
+    drop_usernames: list[str] | None = None,
+    auto_drop: str | None = "previewuser",
+) -> pd.DataFrame:
+    if drop_usernames is None:
+        drop_usernames = []
     df = (
         pd.read_csv(
-            fxls,
+            f_xls,
             sep="\t",
             encoding="utf-16-le",
             dtype={
@@ -282,51 +291,54 @@ def read_xls(fxls: Path, /) -> pd.DataFrame:
             keep_default_na=False,
         )
         .assign(id=lambda x: x["Username"])
+        .loc[lambda x: ~x["Username"].isin(drop_usernames)]
         .set_index("id")
     )
-    if np.any(sel := df["Username"].str.contains("_previewuser")):
-        msg = "preview user(s) detected: dropping rows (use verbose=True to see affected rows)\n{}"
+    if auto_drop and np.any(sel := df["Username"].str.contains(auto_drop)):
+        msg = "{autodrop=} detected: dropping rows (use verbose=True to see affected rows)\n{}"
         logging.info(msg.format(df.loc[sel, ["Last Name", "First Name"]].reset_index()))
         df = df.loc[~sel, :]
-    assert np.all([("s" + x) == y for x, y in zip(df["Student ID"], df["Username"])])
+    check = np.array([("s" + x) == y for x, y in zip(df["Student ID"], df["Username"])])
+    if not np.all(check):
+        raise ValueError(f"Unexpected entries\n{df[~check]}")
     return df.sort_index()
 
 
 def prepare_project(
-    root_ini: str | Path,
+    ini_xls: str | Path,
+    ini_zip: str | Path,
     root_end: str | Path,
     /,
+    keep: str = "last",
+    drop_usernames: Optional[list[str]] = None,
     drop_empty: bool = False,
+    drop_callback: Optional[Callable] = None,
     safe: bool = True,
     verbose: bool = False,
-) -> pd.DataFrame:
-    root_ini, root_end = Path(root_ini), Path(root_end)
-    if not (root_ini.exists() and root_ini.is_dir()):
-        raise ValueError(f"Not an existing folder: {str(root_ini)}")
+) -> dict[Path, pd.DataFrame]:
+    ini_xls, ini_zip, root_end = Path(ini_xls), Path(ini_zip), Path(root_end)
+    if not (ini_xls.exists() or ini_zip.exists()):
+        raise ValueError("ini_* file(s) do not exist")
     if not (root_end.exists() and root_end.is_dir()):
         raise ValueError(f"Not an existing folder: {str(root_end)}")
     if safe and any(root_end.iterdir()):
-        raise ValueError(f"Project output path is not empty. Operation aborted.")
-
-    errors = 0
+        raise ValueError("Project output path is not empty. Operation aborted.")
 
     # Grades
-    [fxls] = list(root_ini.glob("*.xls"))
-    df_grades_tpl = read_xls(fxls)
+    df_grades_tpl = read_xls(ini_xls, drop_usernames=drop_usernames)
     if verbose:
         f = root_end / "debug-df_grades_tpl.xlsx"
         logging.debug(f"Writing DataFrame to {str(f)}")
         _df_to_excel(df_grades_tpl, f)
 
     # Submissions
-    [fzip] = list(root_ini.glob("*.zip"))
     path_files = root_end / "submission_files"
     if path_files.exists():
         shutil.rmtree(path_files)
     else:
         path_files.mkdir(exist_ok=True)
     # 1) Extract
-    with ZipFile(fzip, "r") as zip_ref:
+    with ZipFile(ini_zip, mode="r") as zip_ref:
         zip_ref.extractall(path_files)
     # 2) Get metadata from submission logs
     df_logs = metadata_from_logs(path_files)
@@ -334,11 +346,19 @@ def prepare_project(
     try:
         [assignment] = df_logs["assignment"].unique()
     except ValueError as e:
-        raise ValueError(f"Data seems to host more than one assignment") from e
+        raise ValueError("Data seems to host more than one assignment") from e
     if verbose:
         f = root_end / "debug-df_logs.xlsx"
         logging.debug(f"Writing DataFrame to {str(f)}")
         _df_to_excel(df_logs, f)
+    # 2.5) Handle multiple submissions
+    df_logs = df_logs.sort_index().sort_values(by="log")
+    is_duplicate = df_logs.index.duplicated(keep=keep)
+    for index, row in df_logs.loc[is_duplicate].iterrows():
+        for p in row["fnames_blearn"]:
+            (path_files / p).unlink()
+        (path_files / row["log"]).unlink()
+    df_logs = df_logs.loc[~is_duplicate]
     # 3) Pack unexpected cases into zip files and reflect that in the metadata
     md = df_logs[["log", "fnames_blearn"]].to_dict(orient="index")
     for k, v in md.items():
@@ -408,15 +428,22 @@ def prepare_project(
         "fnames_original",
         "fnames_blearn",
     ]
-    df_all_tpl = (
-        df_all_tpl.assign(full_name=lambda x: x["First Name"] + " " + x["Last Name"])
-        .sort_values(by=["Last Name", "full_name"])
-        .drop(drop_cols, axis=1)
-    )
+    df_all_tpl["datetime_lastaccess"] = df_all_tpl["Last Access"]
+    df_all_tpl["datetime_log"] = df_all_tpl["datetime"]
+    df_all_tpl = df_all_tpl.assign(
+        full_name=lambda x: x["First Name"] + " " + x["Last Name"]
+    ).sort_values(by=["Last Name", "full_name"])
+    try:
+        df_all_tpl = df_all_tpl.drop(drop_cols, axis=1)
+    except KeyError as e:
+        avail = df_all_tpl.columns.tolist()
+        raise KeyError(f"Not all keys are available in axis: {avail}") from e
     cols = df_all_tpl.columns.tolist()
     cols_ini = [
         "Last Name",
         "full_name",
+        "datetime_lastaccess",
+        "datetime_log",
         "submission",
         "current_mark",
         "submission_field",
@@ -430,16 +457,17 @@ def prepare_project(
     for fname in df_aux["log"].tolist():
         (path_files / fname).unlink()
     submission = {}
-    for id, fname in df_aux["submission"].to_dict().items():
+    errors = 0
+    for idx, fname in df_aux["submission"].to_dict().items():
         fzip = path_files / fname
-        fdir = path_files / Path(id).stem
+        fdir = path_files / Path(idx).stem
         fdir.mkdir()
         try:
-            with ZipFile(fzip, "r") as zip_ref:
+            with ZipFile(fzip, mode="r") as zip_ref:
                 zip_ref.extractall(fdir)
         except BadZipFile:
             errors += 1
-            logging.warning(f"BadZipFile at {id=}.")
+            logging.warning(f"BadZipFile at {idx=}.")
             (fdir / "corrupt_submission.txt").touch()
         fzip.unlink()
         submission[fname] = str(fdir.relative_to(root_end))
@@ -458,13 +486,15 @@ def prepare_project(
             .dropna(how="all", axis=0, subset=subset)
             .fillna("")
         )
+    if drop_callback:
+        df_all_tpl = drop_callback(df_all_tpl)
     name = "template-" + assignment.lower().replace(" ", "_") + ".xlsx"
     f = root_end / name
     logging.debug(f"Writing DataFrame to {str(f)}")
     _df_to_excel(df_all_tpl, f, group_icols=[2, 3])
     if errors > 0:
         print("error / warnings appeared processing submissions. See the log.")
-    return df_all_tpl
+    return {f: df_all_tpl}
 
 
 def main():
@@ -492,8 +522,15 @@ def main():
         raise ValueError(f"Cannot find {str(root_ini)}")
     root_end = args.root / "grade_centre-2_output"
     root_end.mkdir(exist_ok=True)
+    ini_xls = root_ini / "a.xls"
+    ini_zip = root_ini / "a.zip"
     prepare_project(
-        root_ini, root_end, drop_empty=True, safe=not args.force, verbose=args.debug
+        ini_xls,
+        ini_zip,
+        root_end,
+        drop_empty=True,
+        safe=not args.force,
+        verbose=args.debug,
     )
     logging.info("END.")
 

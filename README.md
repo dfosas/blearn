@@ -4,7 +4,7 @@
 https://img.shields.io/badge/code%20style-black-000000.svg)](
 https://github.com/psf/black)
 
-Utilities to work with BlackBoard Learn in offline mode (this is, *not* with its API).
+Utilities to work with BlackBoard Learn in offline mode (i.e., *not* with its API).
 
 # Functionality
 * Parse offline grading sheet.
@@ -25,3 +25,8 @@ Utilities to work with BlackBoard Learn in offline mode (this is, *not* with its
 > hyperlinks should then work. 
 > (Note that, as of MacOS 12.3 (Monterey), 
 > giving Excel `Full disk access` does not solve this issue.)
+
+> :warning: **If you are using folders synced to the cloud**:
+> In cases like OneDrive on Windows and Excel,
+> the OS might redirect paths to files synced to the cloud by a URL.
+> In that case, it might be preferable to work on a fully offline location.

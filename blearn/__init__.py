@@ -1,3 +1,3 @@
 # coding=utf-8
 """blearn"""
-__version__ = "2022.7.28"
+__version__ = "2024.3.16"

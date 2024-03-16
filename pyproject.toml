@@ -16,7 +16,7 @@ dependencies = [
     "tabulate",
     "xlwings",
 ]
-requires-python = ">=3.7"
+requires-python = ">=3.11"
 readme = "README.md"
 classifiers = [ "License :: OSI Approved :: MIT License",]
 dynamic = ["version", "description"]
