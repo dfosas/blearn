@@ -169,6 +169,19 @@ def _read_fnames(path: Path, /, mode: str = "log") -> list[str]:
         raise ValueError(f"`{mode=}` is not supported.")
 
 
+def parse_datetime(x: str, /) -> arrow.Arrow:
+    """Parse datetime routine as Learn uses non-standard format and timezone info."""
+    mapper = {"BST": "Europe/London"}
+    dt_str = x.split(", ", maxsplit=1)[1].replace("o'clock ", "")
+    dt_str, dt_tz = dt_str.rsplit(" ", maxsplit=1)
+    if dt_tz in mapper:
+        dt_tz = mapper[dt_tz]
+    try:
+        return arrow.get(dt_str, "D MMMM YYYY HH:mm:ss", tzinfo=dt_tz)
+    except arrow.ParserError as e:
+        raise ValueError(f"Could not parse datetime string: {dt_str=}, {dt_tz=}") from e
+
+
 def msg_loads(
     txt: str, /, fname: str | None = None, remove_empty: bool = True, tpl: str = TXT_TPL
 ) -> dict:
@@ -177,10 +190,7 @@ def msg_loads(
         data = parse(tpl, txt).named
     except AttributeError:
         raise ValueError(err_tpl.format(txt=txt, tpl=tpl))
-    # Parse datetime
-    dt_str = data["datetime_raw"].split(", ", maxsplit=1)[1].replace("o'clock ", "")
-    dt_str, dt_tz = dt_str.rsplit(" ", maxsplit=1)
-    data["datetime"] = arrow.get(dt_str, "D MMMM YYYY HH:mm:ss", tzinfo=dt_tz)
+    data["datetime"] = parse_datetime(data["datetime_raw"])
     del data["datetime_raw"]
     # Remove empty fields
     if remove_empty:
@@ -517,10 +527,10 @@ def main():
 
     _setup_logger(path=args.root / "blearn.log", debug=True)
     logging.info("INI.")
-    root_ini = args.root / "grade_centre-1_input"
+    root_ini = args.root / "blearn-1_ini"
     if not root_ini.exists():
         raise ValueError(f"Cannot find {str(root_ini)}")
-    root_end = args.root / "grade_centre-2_output"
+    root_end = args.root / "blearn-2_out"
     root_end.mkdir(exist_ok=True)
     ini_xls = root_ini / "a.xls"
     ini_zip = root_ini / "a.zip"
