@@ -10,10 +10,10 @@ install:  ## Install in local system
 	flit install --symlink --extras test
 
 lint:  ## Lint and static-check
-	black --check --diff --color $(dir_package) $(dir_tests)
-	python -m flake8 $(dir_package) $(dir_tests)
+	black --check --diff --color $(dir_package)
+	python -m flake8 $(dir_package)
 	# python -m pylint $(dir_package)
-	python -m mypy $(dir_package) $(dir_tests)
+	python -m mypy $(dir_package)
 
 test:  ## Test
 	coverage erase

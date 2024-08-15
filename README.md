@@ -6,6 +6,14 @@ https://github.com/psf/black)
 
 Utilities to work with BlackBoard Learn in offline mode (i.e., *not* with its API).
 
+Package under construction:
+* No documentation yet.
+  * Best entry point at present is `blearn.grader.prepare_project`.
+    Then working within Jupyter notebooks.
+  * There is a skeleton for command line invocation via `blearn-prepare`.
+* No tests yet.
+* Things can easily break with Learn updates.
+
 # Functionality
 * Parse offline grading sheet.
 * Parse bundled submission in zip file or extracted zip file:

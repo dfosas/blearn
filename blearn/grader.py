@@ -3,7 +3,7 @@ import logging
 import shutil
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, ContextManager
 from zipfile import ZipFile, BadZipFile
 
 import arrow
@@ -102,8 +102,8 @@ def _df_to_excel(
         writer.sheets[sheet_name].freeze_panes(1, 1)
         for i, width in enumerate(_col_width_excel(df, with_index=with_index)):
             group = dict(level=1) if i in group_icols else None
-            width = width if adjust_colwidth else None
-            writer.sheets[sheet_name].set_column(i, i, width, None, group)
+            width_ = width if adjust_colwidth else None
+            writer.sheets[sheet_name].set_column(i, i, width_, None, group)
 
 
 def _get_similar_files(
@@ -228,7 +228,7 @@ def msg_load(path_or_buffer, /, **kwargs) -> dict:
 
     """
     if hasattr(path_or_buffer, "readline"):
-        cm = nullcontext(path_or_buffer)
+        cm: ContextManager = nullcontext(path_or_buffer)
     else:
         cm = open(path_or_buffer)
     with cm as f:
@@ -262,7 +262,7 @@ def metadata_from_filenames(fzip: Path, /, quiet: bool = False) -> pd.DataFrame:
     for fname_txt in fnames_txt:
         metadata = parse(TXT_DEFAULT_PATH_TXT, fname_txt).named
         metadata["log"] = fname_txt
-        mode = "warn" if not quiet else None
+        mode = "warn" if not quiet else "halt"
         fnames_others = _get_similar_files(fname_txt, fnames_other, mode=mode)
         metadata["submission"] = fnames_others
         md_paths.append(metadata)
@@ -364,7 +364,7 @@ def prepare_project(
     # 2.5) Handle multiple submissions
     df_logs = df_logs.sort_index().sort_values(by="log")
     is_duplicate = df_logs.index.duplicated(keep=keep)
-    for index, row in df_logs.loc[is_duplicate].iterrows():
+    for _, row in df_logs.loc[is_duplicate].iterrows():
         for p in row["fnames_blearn"]:
             (path_files / p).unlink()
         (path_files / row["log"]).unlink()

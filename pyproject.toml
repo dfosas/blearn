@@ -29,6 +29,7 @@ test = [
     "black",
     "flake8",
     "flake8-bugbear",
+    "flake8-pyproject",
     "mypy",
     "pylint",
     "pytest >=7.0",
@@ -41,6 +42,15 @@ blearn-prepare = "blearn.grader:main"
 
 [tool.black]
 line-length = 88
+
+[tool.flake8]
+# Check that this is aligned with your other tools like Black
+max-line-length = 88
+exclude = [
+    ".git",
+    "__pycache__"
+]
+extend-ignore = ["E501"]
 
 [tool.mypy]
 ignore_missing_imports = true
