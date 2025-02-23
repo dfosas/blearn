@@ -4,7 +4,7 @@ from pathlib import Path
 
 import fire
 import pandas as pd
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Page, Locator
 
 from blearn.utils import setup_logger
 
@@ -14,7 +14,7 @@ async def get_text_content_by_xpath(page, xpath) -> str:
     return await element.text_content()
 
 
-async def get_info(page) -> tuple[str, str]:
+async def get_ids(page: Page) -> tuple[str, str]:
     # XPaths for user and receipt IDs
     xpath_uid = """//*[@id="main-content"]/div[7]/div/div/div/div/bb-flexible-attempt-grading-ui/section/header/div/header/div/div/div[1]/div/div[2]/div/h1/div/div/bdi"""
     uid = await get_text_content_by_xpath(page, xpath_uid)
@@ -23,7 +23,7 @@ async def get_info(page) -> tuple[str, str]:
     return uid, rcp
 
 
-async def next_clickable(element) -> bool:
+async def next_clickable(element: Locator) -> bool:
     is_disabled = await element.get_attribute("aria-disabled")
     if is_disabled == "true":
         return False
@@ -33,7 +33,23 @@ async def next_clickable(element) -> bool:
         raise ValueError(f"Exception with {is_disabled=}")
 
 
-async def get_records(start_url: str, wait: bool = False) -> list[dict[str, str]]:
+async def maybe_go_to_next(page: Page, pause: int | None) -> bool:
+    button_next = page.locator('[aria-label="Next Student"]')
+    if await next_clickable(button_next):
+        next_avail = True
+        logging.info("There is another submission: moving to the next one")
+        if pause:
+            await page.wait_for_timeout(pause)
+        await button_next.click()
+    else:
+        next_avail = False
+        logging.info("No more submissions available")
+    return next_avail
+
+
+async def get_records(
+    start_url: str, pause: int | None = None, wait_end: bool = False
+) -> list[dict[str, str]]:
     """
     Get records for anonymous submissions.
 
@@ -41,7 +57,9 @@ async def get_records(start_url: str, wait: bool = False) -> list[dict[str, str]
     ----------
     start_url
         The URL to start navigation from for the user.
-    wait
+    pause
+        Time to pause between submissions in milliseconds. If `None` or 0 then no pause is used.
+    wait_end
         Whether to wait keep the browser opened at the end until user confirmation
         that it can be closed.
 
@@ -64,22 +82,17 @@ async def get_records(start_url: str, wait: bool = False) -> list[dict[str, str]
         records = []
         n = 0
         while True:
-            uid, rcp = await get_info(page)
+            uid, rcp = await get_ids(page)
             records.append({"uid": uid, "rcp": rcp})
             n += 1
             logging.info(f"Got '{uid}' ({n} records so far)")
-            button_next = page.locator('[aria-label="Next Student"]')
-            if await next_clickable(button_next):
-                logging.info("There is another submission: moving to the next one")
-                await button_next.click()
-                await page.wait_for_timeout(1000)  # Wait for navigation to settle
-            else:
-                logging.info("No more submissions available")
+            next_avail = await maybe_go_to_next(page=page, pause=pause)
+            if not next_avail:
                 break
         logging.info("ID mapping download: END")
         logging.info(f"Retrieved {len(records)} records")
 
-        if wait:
+        if wait_end:
             input("Press Enter when ready to close the browser...")
         await browser.close()
 
@@ -97,7 +110,8 @@ async def main(
     start_url: str,
     p_out: Path | None = None,
     p_log: Path | None = None,
-    wait: bool = False,
+    pause: int | None = None,
+    wait_end: bool = False,
     debug: bool = False,
 ):
     """
@@ -111,7 +125,9 @@ async def main(
         Output file path for the spreadsheet.
     p_log
         Path to log file to write output to.
-    wait
+    pause
+        Time to pause between submissions in milliseconds. If `None` or 0 then no pause is used.
+    wait_end
         Whether to wait keep the browser opened at the end until user confirmation
         that it can be closed.
     debug
@@ -125,7 +141,7 @@ async def main(
         p_log = p_out.parent / f"blearn-{Path(__file__).stem}.log"
     setup_logger(path=p_log, shout=True, debug=debug)
     logging.info("INI.")
-    records = await get_records(start_url=start_url, wait=wait)
+    records = await get_records(start_url=start_url, pause=pause, wait_end=wait_end)
     save_records(records, p_out)
     logging.info("END.")
 
