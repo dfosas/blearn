@@ -7,12 +7,20 @@ https://github.com/psf/black)
 Utilities to work with BlackBoard Learn in offline mode (i.e., *not* with its API).
 
 Package under construction:
-* No documentation yet.
-  * Best entry point at present is `blearn.grader.prepare_project`.
-    Then working within Jupyter notebooks.
-  * There is a skeleton for command line invocation via `blearn-prepare`.
-* No tests yet.
+* No that much documentation yet.
+  * Best entry points are CLI tools starting with `blearn-` (they have docs).
+* No tests yet (it would require widespread availability of test courses
+  for known Learn versions to make them truly reproducible).
 * Things can easily break with Learn updates.
+* Offline marking of non-anonymous submissions still needs some love to handle
+  reporting of some cases (e.g., what happens with repeated submissions).
+
+# Installation
+Regular installation for python packages only available at git apply.
+The package is being developed with `flit`, so `flit install --symlink` works great.
+Since the package includes web automation routines with `playwright`,
+it may be necessary to also install its tools with `playwright install`
+*after* this package is installed to make browsers available.
 
 # Functionality
 * Parse offline grading sheet.
@@ -22,6 +30,7 @@ Package under construction:
 * Expand grading sheet and bundled submission into normalised folders:
   * All submitted files per user are bundled together if they were not.
   * Links to per-user folder are added to the grading sheet for ease of use.
+* Support for anonymous marking that is not made available by Learn (!).
 
 > :warning: **If you are using macOS**: 
 > Apple's sandboxing, and its implementation in Microsoft Office, 
