@@ -23,7 +23,7 @@ Package under construction:
   * All submitted files per user are bundled together if they were not.
   * Links to per-user folder are added to the grading sheet for ease of use.
 
-> :warning: **If you are using MacOS**: 
+> :warning: **If you are using macOS**: 
 > Apple's sandboxing, and its implementation in Microsoft Office, 
 > might prevent hyperlinks from working. 
 > To see if this is the case, 
@@ -31,7 +31,7 @@ Package under construction:
 > `~/Library/Group Containers/<code>.Office/`. 
 > Because Microsoft Office has rights for this folder, 
 > hyperlinks should then work. 
-> (Note that, as of MacOS 12.3 (Monterey), 
+> (Note that, as of macOS 12.3 (Monterey), 
 > giving Excel `Full disk access` does not solve this issue.)
 
 > :warning: **If you are using folders synced to the cloud**:

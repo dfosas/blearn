@@ -1,3 +1,4 @@
+# coding=utf-8
 import logging
 import shutil
 from contextlib import nullcontext
@@ -10,8 +11,8 @@ import arrow
 from bs4 import BeautifulSoup
 from parse import parse
 
-DEFAULT_ZIPFILE_SUFFIX = "-generated"  # note this is without the extension
-HYPERLINK_TPL = (
+DEFAULT_ZIPFILE_SUFFIX = "-generated"  # n.b. this is without the extension
+XLSX_LINK = (
     '=HYPERLINK(LEFT(CELL("filename",A1),FIND("[",CELL("filename",A1))-1)&"{}", "link")'
 )
 TXT_TPL = """\
@@ -41,13 +42,33 @@ TXT_DEFAULT_PATH_TXT = (
 TXT_DEFAULT_PATH_SUBMISSION = TXT_DEFAULT_PATH_TXT.replace(".txt", "_{fname}")
 
 
-def _setup_logger(path: Path, debug: bool = False):
-    """Set up logger and save to `path`, optionally with debugging info."""
+def setup_logger(path: Path, shout: bool = True, debug: bool = False):
+    """
+    Set up logger and save to `path`.
+
+    Parameters
+    ----------
+    path
+        Path where to save log.
+    shout
+        Print path.
+    debug
+        Activate debug mode.
+
+    Returns
+    -------
+    logging.FileHandler
+        Logger's file handler
+
+    """
 
     def filter_parse(record):
         if record.name == "parse":
             return False
         return True
+
+    if shout:
+        print(f"Setting up logger at {str(path)}")
 
     level = logging.DEBUG if debug else logging.INFO
     formatter = logging.Formatter(
@@ -63,7 +84,7 @@ def _setup_logger(path: Path, debug: bool = False):
     return fh
 
 
-def _col_width_excel(df: pd.DataFrame, with_index: bool = True) -> list[int]:
+def col_width_excel(df: pd.DataFrame, with_index: bool = True) -> list[int]:
     """
     Create a list of column widths based on column names.
 
@@ -84,7 +105,7 @@ def _col_width_excel(df: pd.DataFrame, with_index: bool = True) -> list[int]:
     return index + others
 
 
-def _df_to_excel(
+def df_to_excel(
     df: pd.DataFrame,
     path: Path,
     adjust_colwidth: bool = True,
@@ -97,13 +118,13 @@ def _df_to_excel(
         sheet_name = "grades"
         df.to_excel(writer, sheet_name=sheet_name, index=with_index)
         writer.sheets[sheet_name].freeze_panes(1, 1)
-        for i, width in enumerate(_col_width_excel(df, with_index=with_index)):
+        for i, width in enumerate(col_width_excel(df, with_index=with_index)):
             group = dict(level=1) if i in group_icols else None
             width_ = width if adjust_colwidth else None
             writer.sheets[sheet_name].set_column(i, i, width_, None, group)
 
 
-def _get_similar_files(
+def get_similar_files(
     template: str,
     candidates: list[str],
     mode: str = "warn",
@@ -123,7 +144,7 @@ def _get_similar_files(
     return f_others
 
 
-def _pack_files(f_pack, /, root: Path, files: list[str | Path]):
+def pack_files(f_pack, /, root: Path, files: list[str | Path]):
     path_tmp = root / "_test"
     path_tmp.mkdir(exist_ok=True)
     path_zip = path_tmp / f_pack.name
@@ -207,7 +228,8 @@ def msg_load(path_or_buffer, /, **kwargs) -> dict:
 
 def extract_submission_field(txt: str, /) -> str:
     soup = BeautifulSoup(txt, features="html.parser")
-    soup.a.decompose()  # remove link to submission file
+    if soup.a:
+        soup.a.decompose()  # remove link to submission file
     out = soup.get_text()
     return " ".join(out.splitlines())  # new lines to spaces
 
@@ -230,7 +252,7 @@ def pack_unexpected(df_logs: pd.DataFrame, path_files: Path) -> pd.DataFrame:
             f_submission = [f_shim.name]
         # note that shutil.make_archive adds the extension to the name
         f_pack = path_files / (basename + DEFAULT_ZIPFILE_SUFFIX)
-        _pack_files(f_pack, root=path_files, files=f_submission)
+        pack_files(f_pack, root=path_files, files=f_submission)
         md[k]["zip"] = f_pack.with_suffix(".zip").name
     df_logs["pack"] = df_logs.index.map({k: v["pack"] for k, v in md.items()})
     return df_logs

@@ -1,5 +1,7 @@
-import asyncio
+# coding=utf-8
 from pathlib import Path
+
+import fire
 import pandas as pd
 from playwright.async_api import async_playwright
 
@@ -10,7 +12,7 @@ async def get_text_content_by_xpath(page, xpath) -> str:
 
 
 async def get_info(page) -> tuple[str, str]:
-    # xpaths for user and receipt IDs
+    # XPaths for user and receipt IDs
     xpath_uid = """//*[@id="main-content"]/div[7]/div/div/div/div/bb-flexible-attempt-grading-ui/section/header/div/header/div/div/div[1]/div/div[2]/div/h1/div/div/bdi"""
     uid = await get_text_content_by_xpath(page, xpath_uid)
     xpath_rcp = """//*[@id="main-content"]/div[7]/div/div/div/div/bb-flexible-attempt-grading-ui/section/header/div/header/div/div/div[2]/div[1]/div[1]/span"""
@@ -59,26 +61,35 @@ async def get_records(start_url) -> list[dict[str, str]]:
 
 
 def save_records(records: list[dict[str, str]], path: Path) -> Path:
+    print(f"Saving file to: {path}")
     df = pd.DataFrame(records)
     df.to_excel(path)
-    print(f"File saved to: {path}")
     return path
 
 
-async def main():
-    # TODO: turn to argparse
-    # Arguments
-    d_out = Path("1b-ids_mapping")
-    assert d_out.exists()
-    stamp = pd.Timestamp.now().isoformat(timespec="seconds").replace(":", "")
-    p_out = d_out / f"id_mapping-{stamp}.xlsx"
+async def main(url: str, p_out: Path | None = None):
+    """
+    Web automation tool to extract Learn's anonymous marking IDs.
 
-    # Execution
-    records = await get_records(
-        "https://www.learn.ed.ac.uk/auth-saml/saml/login?apId=_175_1"
-    )
+    Parameters
+    ----------
+    url
+        Address to start the process from.
+    p_out
+        Output file path for the spreadsheet.
+
+    """
+    if p_out is None:
+        stamp = pd.Timestamp.now().isoformat(timespec="seconds").replace(":", "")
+        p_out = Path.cwd() / f"id_mapping-{stamp}.xlsx"
+
+    records = await get_records(url)
     save_records(records, p_out)
 
 
+def cli():
+    fire.Fire(main)
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    fire.Fire(main)

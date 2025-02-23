@@ -1,9 +1,10 @@
-import argparse
+# coding=utf-8
 import logging
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 from zipfile import ZipFile, BadZipFile
 
+import fire
 import numpy as np
 import pandas as pd
 from parse import parse
@@ -12,7 +13,7 @@ from IPython.core.display_functions import display
 from blearn import utils as u
 
 
-def _read_fnames(path: Path, /, mode: str = "log") -> list[str]:
+def _read_file_names(path: Path, /, mode: str = "log") -> list[str]:
     """
     Read file names from Path.
 
@@ -27,52 +28,52 @@ def _read_fnames(path: Path, /, mode: str = "log") -> list[str]:
         * 'others': retrieves every file that is not a txt log file.
 
     """
-    iszip = True if path.name.endswith(".zip") else False
-    if iszip:
+    is_zip = True if path.name.endswith(".zip") else False
+    if is_zip:
         with ZipFile(path) as z:
-            fnames = z.namelist()
+            f_names = z.namelist()
     else:
-        fnames = [f.name for f in sorted(path.glob("*"))]
-    logs = [fname for fname in fnames if parse(u.TXT_DEFAULT_PATH_TXT, fname)]
+        f_names = [f.name for f in sorted(path.glob("*"))]
+    logs = [f_name for f_name in f_names if parse(u.TXT_DEFAULT_PATH_TXT, f_name)]
     if mode == "log":
         return logs
     elif mode == "all":
-        return fnames
+        return f_names
     elif mode == "others":
-        return [fname for fname in fnames if fname not in logs]
+        return [f_name for f_name in f_names if f_name not in logs]
     else:
         raise ValueError(f"`{mode=}` is not supported.")
 
 
 def metadata_from_logs(fzip: Path, /) -> pd.DataFrame:
-    iszip = True if fzip.name.endswith(".zip") else False
-    fnames_txt = _read_fnames(fzip, mode="log")
-    if iszip:
+    is_zip = True if fzip.name.endswith(".zip") else False
+    f_names_txt = _read_file_names(fzip, mode="log")
+    if is_zip:
         md_files = []
         with ZipFile(fzip) as z:
-            for fname_txt in fnames_txt:
-                with z.open(fname_txt) as zf:
+            for f_name_txt in f_names_txt:
+                with z.open(f_name_txt) as zf:
                     md_files.append(u.msg_loads(zf.read().decode()))
     else:
-        paths = [fzip / fname_txt for fname_txt in fnames_txt]
+        paths = [fzip / f_name_txt for f_name_txt in f_names_txt]
         md_files = [u.msg_load(path, fname=path.name) for path in paths]
     df = pd.DataFrame.from_records(md_files).set_index("id").sort_index()
-    # arrow datetimes are not supported in pandas
+    # arrow date-times are not supported in pandas
     df["datetime"] = pd.to_datetime(df["datetime"].apply(lambda x: x.isoformat()))
     return df
 
 
 def metadata_from_filenames(fzip: Path, /, quiet: bool = False) -> pd.DataFrame:
-    fnames_txt = _read_fnames(fzip, mode="log")
-    fnames_other = _read_fnames(fzip, mode="others")
+    f_names_txt = _read_file_names(fzip, mode="log")
+    f_names_other = _read_file_names(fzip, mode="others")
     # Metadata retrieved form path names
     md_paths = []
-    for fname_txt in fnames_txt:
-        metadata = parse(u.TXT_DEFAULT_PATH_TXT, fname_txt).named
-        metadata["log"] = fname_txt
+    for f_name_txt in f_names_txt:
+        metadata = parse(u.TXT_DEFAULT_PATH_TXT, f_name_txt).named
+        metadata["log"] = f_name_txt
         mode = "warn" if not quiet else "halt"
-        fnames_others = u._get_similar_files(fname_txt, fnames_other, mode=mode)
-        metadata["submission"] = fnames_others
+        f_names_others = u.get_similar_files(f_name_txt, f_names_other, mode=mode)
+        metadata["submission"] = f_names_others
         md_paths.append(metadata)
     df = pd.DataFrame.from_records(md_paths).set_index("id")
     datetime_cols = ["year", "month", "day", "hour", "minute", "second"]
@@ -113,7 +114,8 @@ def read_xls(
         .set_index("id")
     )
     if auto_drop and np.any(sel := df["Username"].str.contains(auto_drop)):
-        msg = "{autodrop=} detected: dropping rows (use verbose=True to see affected rows)\n{}"
+        msg = f"{auto_drop=} detected: dropping rows (use verbose=True to see affected rows)"
+        msg += "\n{}"
         logging.info(msg.format(df.loc[sel, ["Last Name", "First Name"]].reset_index()))
         df = df.loc[~sel, :]
     check = np.array([("s" + x) == y for x, y in zip(df["Student ID"], df["Username"])])
@@ -123,31 +125,60 @@ def read_xls(
 
 
 def prepare_project(
-    ini_xls: str | Path,
-    ini_zip: str | Path,
-    root_end: str | Path,
-    /,
+    p_xls: str | Path,
+    p_zip: str | Path,
+    d_out: str | Path,
     keep: str = "last",
-    drop_usernames: Optional[list[str]] = None,
+    drop_usernames: list[str] | None = None,
     drop_empty: bool = False,
-    drop_callback: Optional[Callable] = None,
+    drop_callback: Callable | None = None,
     safe: bool = True,
 ) -> tuple[Path, pd.DataFrame]:
-    ini_xls, ini_zip, root_end = Path(ini_xls), Path(ini_zip), Path(root_end)
-    if not (ini_xls.exists() or ini_zip.exists()):
+    """
+    Prepare marking project (n.b. non-anonymous marking).
+
+    Parameters
+    ----------
+    p_xls
+        Path to xls grading template spreadsheet from Learn.
+    p_zip
+        Path to bulk zip file downloaded from Learn for the assignment.
+    d_out
+        Folder in which to save all output files.
+    keep
+        TODO
+    drop_usernames
+        TODO
+    drop_empty
+        TODO
+    drop_callback
+        TODO
+    safe
+        Halt execution if `d_out` is not empty.
+
+    Returns
+    -------
+    Path
+        Path to exported spreadsheet for marking.
+    pd.DataFrame
+        Table for marking.
+
+    """
+    p_xls, p_zip, d_out = Path(p_xls), Path(p_zip), Path(d_out)
+    if not (p_xls.exists() or p_zip.exists()):
         raise ValueError("ini_* file(s) do not exist")
-    if not (root_end.exists() and root_end.is_dir()):
-        raise ValueError(f"Not an existing folder: {str(root_end)}")
-    if safe and any(root_end.iterdir()):
+    if not (d_out.exists() and d_out.is_dir()):
+        raise ValueError(f"Not an existing folder: {str(d_out)}")
+    if safe and any(d_out.iterdir()):
         raise ValueError("Project output path is not empty. Operation aborted.")
 
     # 1) Load grade template (xls from Learn offline marking)
-    df_grades_tpl = read_xls(ini_xls, drop_usernames=drop_usernames)
+    df_grades_tpl = read_xls(p_xls, drop_usernames=drop_usernames)
 
     # 2) Unpack submissions (1 zip bundle to zip files (1 per submission))
-    path_files = root_end / "submission_files"
+    path_files = d_out / "submission_files"
     assignment_name, df_logs = u.unpack_submissions(
-        path_files, ini_zip, f_md=metadata_from_logs
+        path_files, p_zip, f_md=metadata_from_logs
     )
 
     # 2.5) Handle multiple submissions
@@ -228,14 +259,14 @@ def prepare_project(
 
     # Erase logs
     df_aux = df_all_tpl.loc[lambda x: ~pd.isna(x["submission"]), :]
-    for fname in df_aux["log"].tolist():
-        (path_files / fname).unlink()
+    for f_name in df_aux["log"].tolist():
+        (path_files / f_name).unlink()
 
     # Extract zip files with naming convention
     submission = {}
     errors = 0
-    for idx, fname in df_aux["submission"].to_dict().items():
-        fzip = path_files / fname
+    for idx, f_name in df_aux["submission"].to_dict().items():
+        fzip = path_files / f_name
         fdir = path_files / Path(idx).stem
         fdir.mkdir()
         try:
@@ -246,12 +277,12 @@ def prepare_project(
             logging.warning(f"BadZipFile at {idx=}.")
             (fdir / "corrupt_submission.txt").touch()
         fzip.unlink()
-        submission[fname] = str(fdir.relative_to(root_end))
+        submission[f_name] = str(fdir.relative_to(d_out))
     df_all_tpl["submission"] = df_all_tpl["submission"].map(submission)
 
     # Enhance ease of use in Excel: hyperlink to folder
     df_all_tpl["submission"] = df_all_tpl["submission"].apply(
-        lambda x: "" if pd.isna(x) else u.HYPERLINK_TPL.format(x)
+        lambda x: "" if pd.isna(x) else u.XLSX_LINK.format(x)
     )
 
     # Wrap up and write final table
@@ -266,49 +297,55 @@ def prepare_project(
     if drop_callback:
         df_all_tpl = drop_callback(df_all_tpl)
     name = "template-" + assignment_name.lower().replace(" ", "_") + ".xlsx"
-    f = root_end / name
+    f = d_out / name
     logging.debug(f"Writing DataFrame to {str(f)}")
-    u._df_to_excel(df_all_tpl, f, group_icols=[2, 3])
+    u.df_to_excel(df_all_tpl, f, group_icols=[2, 3])
     if errors > 0:
         print("error / warnings appeared processing submissions. See the log.")
     return f, df_all_tpl
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        prog="blearn",
-        description="Prepare files and template for marking.",
-    )
-    parser.add_argument(
-        "--root", type=Path, default=Path.cwd(), help="Root folder for marking project."
-    )
-    parser.add_argument("--log", type=Path, default=False, help="Log file.")
-    parser.add_argument(
-        "--force", action="store_true", help="Force overwriting output folder contents."
-    )
-    parser.add_argument(
-        "--drop_empty", action="store_true", help="Remove entries without submissions."
-    )
-    args = parser.parse_args()
+def main(
+    p_xls: str | Path,
+    p_zip: str | Path,
+    d_out: str | Path,
+    p_log: Path | None = None,
+    safe: bool = True,
+    debug: bool = False,
+    **kwargs,
+):
+    """
+    Prepare marking project (n.b., non-anonymous marking).
 
-    u._setup_logger(path=args.root / "blearn.log", debug=True)
+    Parameters
+    ----------
+    p_xls
+        Path to xls grading template spreadsheet from Learn.
+    p_zip
+        Path to bulk zip file downloaded from Learn for the assignment.
+    d_out
+        Folder in which to save all output files.
+    p_log
+        Path to log file to write output to.
+    safe
+        Halt execution if `d_out` is not empty.
+    debug
+        Activate debug mode for the logger.
+
+    """
+    d_out = Path(d_out)
+    d_out.mkdir(exist_ok=True)
+    if p_log is None:
+        p_log = d_out.parent / f"blearn-{Path(__file__).stem}.log"
+    u.setup_logger(path=p_log, shout=True, debug=debug)
     logging.info("INI.")
-    root_ini = args.root / "blearn-1_ini"
-    if not root_ini.exists():
-        raise ValueError(f"Cannot find {str(root_ini)}")
-    root_end = args.root / "blearn-2_out"
-    root_end.mkdir(exist_ok=True)
-    ini_xls = root_ini / "a.xls"
-    ini_zip = root_ini / "a.zip"
-    prepare_project(
-        ini_xls,
-        ini_zip,
-        root_end,
-        drop_empty=True,
-        safe=not args.force,
-    )
+    prepare_project(p_xls=p_xls, p_zip=p_zip, d_out=d_out, safe=safe, **kwargs)
     logging.info("END.")
 
 
+def cli():
+    fire.Fire(main)
+
+
 if __name__ == "__main__":
-    main()
+    fire.Fire(main)

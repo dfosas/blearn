@@ -9,6 +9,7 @@ authors = [
 ]
 dependencies = [
     "arrow",
+    "fire",
     "numpy",
     "pandas >1.1",
     "xlsxwriter",
@@ -38,7 +39,9 @@ test = [
 doc = ["sphinx"]
 
 [project.scripts]
-blearn-prepare = "blearn.grader:main"
+blearn-grader = "blearn.grader:cli"
+blearn-anon_grader = "blearn.anon_grader:cli"
+blearn-anon_mapping = "blearn.anon_mapping:cli"
 
 [tool.black]
 line-length = 88
