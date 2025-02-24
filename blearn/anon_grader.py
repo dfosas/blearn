@@ -94,7 +94,7 @@ def prepare_project_anon(
     ]
     df_all_tpl = pd.merge(
         df_grades_tpl,
-        df_logs.rename(columns={"pack": "zip"}),
+        df_logs,
         on=["submission_id"],
     ).loc[:, keep_cols]
 

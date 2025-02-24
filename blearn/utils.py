@@ -240,7 +240,7 @@ def pack_unexpected(df_logs: pd.DataFrame, path_files: Path) -> pd.DataFrame:
     for k, v in md.items():
         f_submission = v["fnames_blearn"]
         if len(f_submission) == 1 and f_submission[0].endswith(".zip"):
-            md[k]["pack"] = f_submission[0]
+            md[k]["zip"] = f_submission[0]
             continue
         # Every other case needs to be packed
         basename = Path(v["log"]).stem
@@ -254,7 +254,7 @@ def pack_unexpected(df_logs: pd.DataFrame, path_files: Path) -> pd.DataFrame:
         f_pack = path_files / (basename + DEFAULT_ZIPFILE_SUFFIX)
         pack_files(f_pack, root=path_files, files=f_submission)
         md[k]["zip"] = f_pack.with_suffix(".zip").name
-    df_logs["pack"] = df_logs.index.map({k: v["pack"] for k, v in md.items()})
+    df_logs["zip"] = df_logs.index.map({k: v["zip"] for k, v in md.items()})
     return df_logs
 
 

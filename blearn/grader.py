@@ -206,7 +206,7 @@ def prepare_project(
     df_files.loc[:, "submission"] = df_files["submission"].apply(lambda x: x[0])
     # 2) Merge tables
     df_md = pd.merge(
-        df_logs.reset_index().rename(columns={"pack": "submission"}),
+        df_logs.reset_index(),
         df_files.reset_index(),
         on=["id", "assignment", "log", "datetime", "submission"],
     ).set_index("id")
