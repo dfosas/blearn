@@ -1,10 +1,12 @@
 # coding=utf-8
 import logging
+import re
 from pathlib import Path
 
 import fire
 import pandas as pd
-from playwright.async_api import async_playwright, Page, Locator
+from parse import parse
+from playwright.async_api import async_playwright, Page, Locator, expect
 
 from blearn.utils import setup_logger
 
@@ -14,13 +16,32 @@ async def get_text_content_by_xpath(page, xpath) -> str:
     return await element.text_content()
 
 
-async def get_ids(page: Page) -> tuple[str, str]:
+async def get_ids(page: Page) -> tuple[str, str, str]:
     # XPaths for user and receipt IDs
-    xpath_uid = """//*[@id="main-content"]/div[7]/div/div/div/div/bb-flexible-attempt-grading-ui/section/header/div/header/div/div/div[1]/div/div[2]/div/h1/div/div/bdi"""
-    uid = await get_text_content_by_xpath(page, xpath_uid)
-    xpath_rcp = """//*[@id="main-content"]/div[7]/div/div/div/div/bb-flexible-attempt-grading-ui/section/header/div/header/div/div/div[2]/div[1]/div[1]/span"""
-    rcp = await get_text_content_by_xpath(page, xpath_rcp)
-    return uid, rcp
+    xpath = """//*[@id="main-content"]/div[7]/div/div/div/div/bb-flexible-attempt-grading-ui/section/header/div/header/div/div/div[1]/div/div[2]/div/h1/div/div/bdi"""
+    uid = await get_text_content_by_xpath(page, xpath)
+    xpath = """//*[@id="main-content"]/div[7]/div/div/div/div/bb-flexible-attempt-grading-ui/section/header/div/header/div/div/div[2]/div[1]/div[1]/span"""
+    rcp = await get_text_content_by_xpath(page, xpath)
+
+    try:
+        xpath = """//*[@id="main-content"]/div[7]/div/div/div/div/bb-flexible-attempt-grading-ui/section/header/div/header/div/div/div[2]/div[1]/div[1]/div/div/span[1]"""
+        await expect(page.locator(xpath)).to_have_text(re.compile("^Submitted.+"))
+        attempt = await get_text_content_by_xpath(page, xpath)
+        tpl = "Submitted {date}, {time}"
+        md = parse(tpl, attempt)
+        if md is None:
+            raise AttributeError(f"{attempt} does not match template {tpl}")
+        attempt = {"n_submission": 1, "n_submissions": 1, **md.named}
+    except AssertionError:
+        xpath = """//*[@id="attempt-selection"]/div/span[1]"""
+        await expect(page.locator(xpath)).to_have_text(re.compile("^Attempt.+"))
+        attempt = await get_text_content_by_xpath(page, xpath)
+        tpl = "Attempt {n_submission:d}/{n_submissions:d} (Submitted {date}, {time})"
+        md = parse(tpl, attempt)
+        if md is None:
+            raise AttributeError(f"{attempt} does not match template {tpl}")
+        attempt = md.named
+    return uid, rcp, attempt
 
 
 async def next_clickable(element: Locator) -> bool:
@@ -48,7 +69,7 @@ async def maybe_go_to_next(page: Page, pause: int | None) -> bool:
 
 
 async def get_records(
-    start_url: str, pause: int | None = None, wait_end: bool = False
+    start_url: str, n_max: int | None, pause: int | None = None, wait_end: bool = False
 ) -> list[dict[str, str]]:
     """
     Get records for anonymous submissions.
@@ -57,6 +78,8 @@ async def get_records(
     ----------
     start_url
         The URL to start navigation from for the user.
+    n_max
+        Limit the number of records to return up to `n_max`. If `None` retrieve all records.
     pause
         Time to pause between submissions in milliseconds. If `None` or 0 then no pause is used.
     wait_end
@@ -82,12 +105,12 @@ async def get_records(
         records = []
         n = 0
         while True:
-            uid, rcp = await get_ids(page)
-            records.append({"uid": uid, "rcp": rcp})
+            uid, rcp, attempt = await get_ids(page)
+            records.append({"uid": uid, "rcp": rcp, **attempt})
             n += 1
             logging.info(f"Got '{uid}' ({n} records so far)")
             next_avail = await maybe_go_to_next(page=page, pause=pause)
-            if not next_avail:
+            if not next_avail or (n_max is not None and n >= n_max):
                 break
         logging.info("ID mapping download: END")
         logging.info(f"Retrieved {len(records)} records")
@@ -110,6 +133,7 @@ async def main(
     start_url: str,
     p_out: Path | None = None,
     p_log: Path | None = None,
+    n_max: int | None = None,
     pause: int | None = None,
     wait_end: bool = False,
     debug: bool = False,
@@ -125,6 +149,8 @@ async def main(
         Output file path for the spreadsheet.
     p_log
         Path to log file to write output to.
+    n_max
+        Limit the number of records to return up to `n_max`. If `None` retrieve all records.
     pause
         Time to pause between submissions in milliseconds. If `None` or 0 then no pause is used.
     wait_end
@@ -141,7 +167,9 @@ async def main(
         p_log = p_out.parent / f"blearn-{Path(__file__).stem}.log"
     setup_logger(path=p_log, shout=True, debug=debug)
     logging.info("INI.")
-    records = await get_records(start_url=start_url, pause=pause, wait_end=wait_end)
+    records = await get_records(
+        start_url=start_url, n_max=n_max, pause=pause, wait_end=wait_end
+    )
     save_records(records, p_out)
     logging.info("END.")
 
