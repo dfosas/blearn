@@ -42,6 +42,7 @@ doc = ["sphinx"]
 blearn-grader = "blearn.grader:cli"
 blearn-anon_grader = "blearn.anon_grader:cli"
 blearn-anon_mapping = "blearn.anon_mapping:cli"
+blearn-anon_upload = "blearn.anon_upload:cli"
 
 [tool.black]
 line-length = 88
