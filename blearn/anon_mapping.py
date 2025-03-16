@@ -106,6 +106,8 @@ async def get_records(
         n = 0
         while True:
             uid, rcp, attempt = await get_ids(page)
+            uid = uid.replace("Anonymous Student ", "")
+            rcp = rcp.replace("Receipt: ", "")
             records.append({"uid": uid, "rcp": rcp, **attempt})
             n += 1
             logging.info(f"Got '{uid}' ({n} records so far)")
